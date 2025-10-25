@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart Parking Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      background: #f5f7fb;
+      font-family: 'Inter', sans-serif;
+    }
+    .card {
+      transition: transform 0.3s ease;
+    }
+    .card:hover {
+      transform: scale(1.02);
+    }
+    .car {
+      width: 40px;
+      height: 20px;
+      background: #fff;
+      border-radius: 4px;
+      position: absolute;
+      bottom: -25px;
+      left: 50%;
+      transform: translateX(-50%);
+      transition: bottom 0.8s ease;
+    }
+    .car.enter {
+      bottom: 50%;
+    }
+  </style>
+</head>
+<body class="flex items-center justify-center min-h-screen">
+  <div class="w-full max-w-md p-6 bg-white shadow-xl rounded-2xl" id="auth-section">
+    <h2 class="text-2xl font-bold text-center mb-4">Smart Parking Login</h2>
+    <input id="email" type="email" placeholder="Email" class="w-full mb-3 p-2 border rounded" />
+    <input id="password" type="password" placeholder="Password" class="w-full mb-3 p-2 border rounded" />
+    <button id="signin-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white p-2 rounded mb-2">Sign In</button>
+    <button id="signup-btn" class="w-full bg-gray-600 hover:bg-gray-700 text-white p-2 rounded">Sign Up</button>
+    <p id="auth-error" class="text-red-500 text-sm mt-2 text-center hidden"></p>
+  </div>
+
+  <div id="dashboard" class="hidden w-full max-w-4xl p-6">
+    <div class="flex justify-between items-center mb-6">
+      <h1 class="text-3xl font-bold text-gray-800">Parking Dashboard</h1>
+      <button id="logout-btn" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded">Logout</button>
+    </div>
+
+    <div id="user-info" class="text-gray-600 mb-4"></div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+      <div id="spot1" class="card relative bg-gray-200 p-6 rounded-xl text-center shadow-md">
+        <h2 class="text-xl font-bold mb-2">Spot 1</h2>
+        <p id="spot1-status" class="text-lg font-semibold text-gray-800">Loading...</p>
+        <div class="car" id="car1"></div>
+        <button id="open1" class="mt-4 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">Open Gate</button>
+      </div>
+
+      <div id="spot2" class="card relative bg-gray-200 p-6 rounded-xl text-center shadow-md">
+        <h2 class="text-xl font-bold mb-2">Spot 2</h2>
+        <p id="spot2-status" class="text-lg font-semibold text-gray-800">Loading...</p>
+        <div class="car" id="car2"></div>
+        <button id="open2" class="mt-4 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">Open Gate</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getDatabase, ref, onValue, set, get } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-database.js";
+
+    const firebaseConfig =  {
+  apiKey: "AIzaSyApfYfWRJt7elCzOm0z9bGDy6WL1-uW2bk",
+  authDomain: "smart-parking-e62e6.firebaseapp.com",
+  databaseURL: "https://smart-parking-e62e6-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "smart-parking-e62e6",
+  storageBucket: "smart-parking-e62e6.firebasestorage.app",
+  messagingSenderId: "734176689191",
+  appId: "1:734176689191:web:efb99db9a223e767182202"
+};
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getDatabase(app);
+
+    const authSection = document.getElementById("auth-section");
+    const dashboard = document.getElementById("dashboard");
+    const authError = document.getElementById("auth-error");
+    const userInfo = document.getElementById("user-info");
+
+    const spot1Status = document.getElementById("spot1-status");
+    const spot2Status = document.getElementById("spot2-status");
+    const car1 = document.getElementById("car1");
+    const car2 = document.getElementById("car2");
+
+    const open1 = document.getElementById("open1");
+    const open2 = document.getElementById("open2");
+
+    const updateSpotUI = (spotId, status) => {
+      const spotStatusEl = document.getElementById(`${spotId}-status`);
+      const carEl = document.getElementById(`car${spotId.replace("spot", "")}`);
+
+      if (status.toUpperCase() === "FREE") {
+        spotStatusEl.textContent = "Free";
+        spotStatusEl.className = "text-green-600 font-bold";
+        carEl.classList.remove("enter");
+      } else if (status.toUpperCase() === "OCCUPIED") {
+        spotStatusEl.textContent = "Occupied";
+        spotStatusEl.className = "text-red-600 font-bold";
+        carEl.classList.add("enter");
+      } else {
+        spotStatusEl.textContent = "Offline";
+        spotStatusEl.className = "text-gray-500 font-bold";
+      }
+    };
+
+    const listenParkingStatus = () => {
+      const parkingRef = ref(db, "parking_status");
+      onValue(parkingRef, (snapshot) => {
+        const data = snapshot.val() || {};
+        updateSpotUI("spot1", data.spot1 || "Offline");
+        updateSpotUI("spot2", data.spot2 || "Offline");
+      });
+    };
+
+    const handleOpenGate = async (spotId) => {
+      const spotRef = ref(db, `parking_status/${spotId}`);
+      const accessRef = ref(db, `access_control/${spotId}`);
+
+      const snapshot = await get(spotRef);
+      const status = snapshot.val();
+
+      if (status && status.toUpperCase() === "FREE") {
+        const lockTime = Date.now() + 15000; // 15 seconds
+        await set(accessRef, { open_gate: true, locked_until: lockTime });
+        alert(`Gate opened for ${spotId}! You have 15 seconds.`);
+      } else {
+        alert(`Cannot open gate. Spot is currently ${status}.`);
+      }
+    };
+
+    open1.addEventListener("click", () => handleOpenGate("spot1"));
+    open2.addEventListener("click", () => handleOpenGate("spot2"));
+
+    document.getElementById("signin-btn").onclick = () => {
+      const email = document.getElementById("email").value;
+      const password = document.getElementById("password").value;
+      signInWithEmailAndPassword(auth, email, password)
+        .catch(e => { authError.textContent = e.message; authError.classList.remove("hidden"); });
+    };
+
+    document.getElementById("signup-btn").onclick = () => {
+      const email = document.getElementById("email").value;
+      const password = document.getElementById("password").value;
+      createUserWithEmailAndPassword(auth, email, password)
+        .catch(e => { authError.textContent = e.message; authError.classList.remove("hidden"); });
+    };
+
+    document.getElementById("logout-btn").onclick = () => signOut(auth);
+
+    onAuthStateChanged(auth, user => {
+      if (user) {
+        authSection.classList.add("hidden");
+        dashboard.classList.remove("hidden");
+        userInfo.textContent = `Welcome, ${user.email}`;
+        listenParkingStatus();
+      } else {
+        authSection.classList.remove("hidden");
+        dashboard.classList.add("hidden");
+      }
+    });
+  </script>
+</body>
+</html>
